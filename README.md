@@ -72,7 +72,7 @@ The exit code is 0 only if the result was written at least once, so git treats a
 
 ## Behaviour
 
-- Non-conflicting changes are applied when the tool starts. Pass `--no-auto-apply` to start from the base and apply them yourself.
+- The result starts as the base: nothing is applied for you. Accept non-conflicting changes one by one, or apply them all with `<space>a` (`<space>l` / `<space>r` for one side only). Pass `--auto-apply` to have them applied on start.
 - Changes to adjacent lines count as one conflict, as they do in git.
 - A conflict you fix by hand is marked resolved with `XX`.
 - Line endings and a missing final newline are preserved.

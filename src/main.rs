@@ -23,11 +23,11 @@ use doc::Doc;
 use input::FileText;
 
 const USAGE: &str = "\
-Usage: merge-resolver [--no-auto-apply] BASE LOCAL REMOTE MERGED
+Usage: merge-resolver [--auto-apply] BASE LOCAL REMOTE MERGED
 
 Resolves a three-way merge in the terminal and writes the result to MERGED.
 
-  --no-auto-apply   start with non-conflicting changes unapplied
+  --auto-apply   apply non-conflicting changes on start
 
 Git setup (~/.gitconfig):
 
@@ -134,30 +134,53 @@ fn run(app: &mut App) -> io::Result<i32> {
     result
 }
 
-fn main() -> ExitCode {
-    let mut auto_apply = true;
+#[derive(Debug, PartialEq)]
+enum Cli {
+    Help,
+    Version,
+    Usage,
+    Run {
+        paths: Vec<PathBuf>,
+        auto_apply: bool,
+    },
+}
+
+fn parse_args(args: impl IntoIterator<Item = String>) -> Cli {
+    let mut auto_apply = false;
     let mut paths: Vec<PathBuf> = Vec::new();
     let mut only_paths = false;
-    for arg in std::env::args().skip(1) {
+    for arg in args {
         match arg.as_str() {
             _ if only_paths => paths.push(arg.into()),
             "--" => only_paths = true,
-            "-h" | "--help" => {
-                println!("{USAGE}");
-                return ExitCode::SUCCESS;
-            }
-            "-V" | "--version" => {
-                println!("merge-resolver {}", env!("CARGO_PKG_VERSION"));
-                return ExitCode::SUCCESS;
-            }
-            "--no-auto-apply" => auto_apply = false,
+            "-h" | "--help" => return Cli::Help,
+            "-V" | "--version" => return Cli::Version,
+            "--auto-apply" => auto_apply = true,
             _ => paths.push(arg.into()),
         }
     }
     if paths.len() != 4 {
-        eprintln!("{USAGE}");
-        return ExitCode::from(2);
+        return Cli::Usage;
     }
+    Cli::Run { paths, auto_apply }
+}
+
+fn main() -> ExitCode {
+    let (paths, auto_apply) = match parse_args(std::env::args().skip(1)) {
+        Cli::Help => {
+            println!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        Cli::Version => {
+            println!("merge-resolver {}", env!("CARGO_PKG_VERSION"));
+            return ExitCode::SUCCESS;
+        }
+        Cli::Usage => {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
+        Cli::Run { paths, auto_apply } => (paths, auto_apply),
+    };
     let colors = std::env::var("COLORTERM").unwrap_or_default();
     ui::set_truecolor(colors.contains("truecolor") || colors.contains("24bit"));
 
@@ -177,5 +200,31 @@ fn main() -> ExitCode {
             eprintln!("merge-resolver: terminal error: {e}");
             ExitCode::from(2)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cli(args: &[&str]) -> Cli {
+        parse_args(args.iter().map(|a| a.to_string()))
+    }
+
+    fn run(auto_apply: bool) -> Cli {
+        Cli::Run {
+            paths: ["b", "l", "r", "m"].map(PathBuf::from).to_vec(),
+            auto_apply,
+        }
+    }
+
+    #[test]
+    fn nothing_is_applied_on_start_unless_asked_for() {
+        assert_eq!(cli(&["b", "l", "r", "m"]), run(false));
+    }
+
+    #[test]
+    fn the_auto_apply_flag_applies_non_conflicting_changes_on_start() {
+        assert_eq!(cli(&["--auto-apply", "b", "l", "r", "m"]), run(true));
     }
 }
