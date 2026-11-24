@@ -1,0 +1,262 @@
+use ratatui::Terminal;
+use ratatui::backend::TestBackend;
+use ratatui::buffer::Buffer;
+use ratatui::layout::Position;
+use ratatui::style::Color;
+
+use super::*;
+use crate::app::Key;
+use crate::doc::Doc;
+
+fn lines(s: &[&str]) -> Vec<String> {
+    s.iter().map(|l| l.to_string()).collect()
+}
+
+fn merge(base: &[&str], left: &[&str], right: &[&str]) -> App {
+    App::new(
+        Doc::new(lines(base), lines(left), lines(right), true),
+        "result.txt".into(),
+    )
+}
+
+/// One conflict on line 1 and an applied right-only change on line 4.
+fn sample() -> App {
+    merge(
+        &["a", "b", "c", "d", "e"],
+        &["a", "L", "c", "d", "e"],
+        &["a", "R", "c", "d", "E"],
+    )
+}
+
+fn keys(app: &mut App, s: &str) {
+    for c in s.chars() {
+        app.handle_key(if c == '\x1b' { Key::Esc } else { Key::Char(c) });
+    }
+}
+
+/// Draws on a 62x10 screen: three panes of 20 columns with a 6 column
+/// gutter each, pane rows at y = 1..=7, status at y = 8, command line at y = 9.
+fn render(app: &mut App) -> (Buffer, Position) {
+    let mut t = Terminal::new(TestBackend::new(62, 10)).unwrap();
+    t.draw(|f| draw(f, app)).unwrap();
+    (t.backend().buffer().clone(), t.backend().cursor_position())
+}
+
+fn row(buf: &Buffer, y: u16) -> String {
+    (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect()
+}
+
+/// The text of one pane (0, 1, 2) on a screen row.
+fn pane(buf: &Buffer, p: usize, y: u16) -> String {
+    row(buf, y).split('│').nth(p).unwrap().to_string()
+}
+
+fn screen(buf: &Buffer) -> String {
+    (0..buf.area.height)
+        .map(|y| row(buf, y))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Background of the first text cell of a pane.
+fn bg(buf: &Buffer, p: u16, y: u16) -> Color {
+    buf[(p * 21 + 6, y)].bg
+}
+
+#[test]
+fn the_header_names_the_three_panes() {
+    let (buf, _) = render(&mut sample());
+    assert!(pane(&buf, 0, 0).contains("Local"));
+    assert!(pane(&buf, 1, 0).contains("Result"));
+    assert!(pane(&buf, 2, 0).contains("Incoming"));
+}
+
+#[test]
+fn each_pane_shows_its_version_of_a_line_on_the_same_row() {
+    let (buf, _) = render(&mut sample());
+    assert!(
+        pane(&buf, 0, 2).ends_with("2 L             "),
+        "{:?}",
+        pane(&buf, 0, 2)
+    );
+    assert!(pane(&buf, 1, 2).ends_with("2 b             "));
+    assert!(pane(&buf, 2, 2).ends_with("2 R             "));
+}
+
+#[test]
+fn a_shorter_side_is_padded_with_filler_rows() {
+    let mut a = merge(&["a", "b", "c"], &["a", "L1", "L2", "c"], &["a", "R", "c"]);
+    let (buf, _) = render(&mut a);
+    assert!(pane(&buf, 0, 3).contains("L2"));
+    assert!(pane(&buf, 1, 3).contains("╱╱╱"));
+    assert!(pane(&buf, 1, 4).ends_with("3 c             "));
+}
+
+#[test]
+fn pending_sides_show_arrows_and_handled_sides_a_mark() {
+    let mut a = sample();
+    let (buf, _) = render(&mut a);
+    assert!(pane(&buf, 0, 2).starts_with('»'));
+    assert!(pane(&buf, 2, 2).starts_with('«'));
+    keys(&mut a, "LXR");
+    let (buf, _) = render(&mut a);
+    assert!(pane(&buf, 0, 2).starts_with('✓'));
+    assert!(pane(&buf, 2, 2).starts_with('✕'));
+}
+
+#[test]
+fn an_unresolved_conflict_is_tinted_in_every_pane() {
+    let (buf, _) = render(&mut sample());
+    for p in 0..3 {
+        assert_ne!(bg(&buf, p, 2), Color::Reset, "pane {p}");
+        assert_eq!(bg(&buf, p, 1), Color::Reset, "pane {p}");
+    }
+}
+
+#[test]
+fn the_conflict_under_the_cursor_is_highlighted_more_strongly() {
+    let mut a = merge(
+        &["a", "b", "c", "d", "e"],
+        &["a", "L", "c", "M", "e"],
+        &["a", "R", "c", "S", "e"],
+    );
+    let (buf, _) = render(&mut a);
+    assert_ne!(bg(&buf, 1, 2), bg(&buf, 1, 4));
+    keys(&mut a, "n");
+    let (after, _) = render(&mut a);
+    assert_eq!(bg(&after, 1, 4), bg(&buf, 1, 2));
+    assert_eq!(bg(&after, 1, 2), bg(&buf, 1, 4));
+}
+
+#[test]
+fn a_resolved_conflict_loses_its_tint_once_the_cursor_leaves() {
+    let mut a = sample();
+    keys(&mut a, "L");
+    let (buf, _) = render(&mut a);
+    assert_ne!(bg(&buf, 1, 2), Color::Reset);
+    keys(&mut a, "gg");
+    let (buf, _) = render(&mut a);
+    for p in 0..3 {
+        assert_eq!(bg(&buf, p, 2), Color::Reset, "pane {p}");
+    }
+}
+
+#[test]
+fn changed_words_stand_out_within_a_conflict_line() {
+    let mut a = merge(&["x = foo(1)"], &["x = bar(1)"], &["y = foo(1)"]);
+    let (buf, _) = render(&mut a);
+    // Left pane text starts at x = 6: "x = bar(1)"; "bar" is at columns 4..7.
+    assert_ne!(buf[(6 + 4, 1)].bg, buf[(6, 1)].bg);
+    assert_eq!(buf[(6 + 8, 1)].bg, buf[(6, 1)].bg);
+    keys(&mut a, " w");
+    let (buf, _) = render(&mut a);
+    assert_eq!(buf[(6 + 4, 1)].bg, buf[(6, 1)].bg);
+}
+
+#[test]
+fn the_status_line_reports_mode_and_progress() {
+    let mut a = sample();
+    let (buf, _) = render(&mut a);
+    assert!(row(&buf, 8).contains("NORMAL"));
+    assert!(row(&buf, 8).contains("1 conflict unresolved"));
+    keys(&mut a, "Li");
+    let (buf, _) = render(&mut a);
+    assert!(row(&buf, 8).contains("INSERT"));
+    assert!(row(&buf, 8).contains("All conflicts resolved"));
+}
+
+#[test]
+fn the_cursor_sits_on_its_line_in_the_focused_pane() {
+    let mut a = sample();
+    let (_, cursor) = render(&mut a);
+    assert_eq!(cursor, Position::new(21 + 6, 2));
+    a.handle_key(Key::Ctrl('l'));
+    let (_, cursor) = render(&mut a);
+    assert_eq!(cursor, Position::new(42 + 6, 2));
+}
+
+#[test]
+fn drawing_tells_the_app_how_much_fits_on_screen() {
+    let mut a = sample();
+    render(&mut a);
+    assert_eq!((a.view_h, a.text_w), (7, 14));
+}
+
+#[test]
+fn the_view_starts_at_the_scrolled_row() {
+    let mut a = sample();
+    a.top = 3;
+    a.handle_key(Key::Ctrl('e'));
+    let (buf, _) = render(&mut a);
+    assert!(pane(&buf, 1, 1).ends_with("5 E             "));
+}
+
+#[test]
+fn long_lines_are_cut_at_the_pane_edge_and_scroll_with_the_cursor() {
+    let mut a = merge(
+        &["0123456789abcdefghij"],
+        &["0123456789abcdefghij"],
+        &["0123456789abcdefghij"],
+    );
+    let (buf, _) = render(&mut a);
+    assert!(pane(&buf, 1, 1).ends_with("1 0123456789abcd"));
+    assert!(pane(&buf, 2, 1).ends_with("1 0123456789abcd"));
+    keys(&mut a, "$");
+    let (buf, cursor) = render(&mut a);
+    assert!(pane(&buf, 1, 1).ends_with("1 6789abcdefghij"));
+    assert_eq!(cursor, Position::new(21 + 6 + 13, 1));
+}
+
+#[test]
+fn tabs_are_drawn_as_spaces_up_to_the_next_tab_stop() {
+    let mut a = merge(&["\tx"], &["\tx"], &["\tx"]);
+    let (buf, _) = render(&mut a);
+    assert!(pane(&buf, 1, 1).ends_with("1     x         "));
+}
+
+#[test]
+fn the_leader_menu_lists_its_commands() {
+    let mut a = sample();
+    keys(&mut a, " ");
+    let (buf, _) = render(&mut a);
+    assert!(screen(&buf).contains("a  Apply all non-conflicting changes"));
+    keys(&mut a, "\x1b");
+    let (buf, _) = render(&mut a);
+    assert!(!screen(&buf).contains("Apply all"));
+}
+
+#[test]
+fn the_command_line_shows_what_is_being_typed() {
+    let mut a = sample();
+    keys(&mut a, ":wq");
+    let (buf, cursor) = render(&mut a);
+    assert!(row(&buf, 9).starts_with(":wq "));
+    assert_eq!(cursor, Position::new(3, 9));
+}
+
+#[test]
+fn messages_appear_on_the_bottom_line() {
+    let mut a = sample();
+    keys(&mut a, "ggL");
+    let (buf, _) = render(&mut a);
+    assert!(row(&buf, 9).contains("No conflict under the cursor"));
+}
+
+#[test]
+fn the_visual_selection_is_highlighted() {
+    let mut a = merge(&["abc"], &["abc"], &["abc"]);
+    keys(&mut a, "vl");
+    let (buf, _) = render(&mut a);
+    assert_ne!(buf[(27, 1)].bg, Color::Reset);
+    assert_ne!(buf[(28, 1)].bg, Color::Reset);
+    assert_eq!(buf[(29, 1)].bg, Color::Reset);
+}
+
+#[test]
+fn a_tiny_terminal_does_not_crash() {
+    let mut a = sample();
+    for (w, h) in [(0, 0), (1, 1), (5, 2), (12, 3), (20, 4)] {
+        let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+        t.draw(|f| draw(f, &mut a)).unwrap();
+    }
+}
