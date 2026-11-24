@@ -359,6 +359,22 @@ impl Doc {
         }
     }
 
+    /// Dismisses every side that is still pending.
+    pub fn ignore_pending(&mut self, idx: usize) -> Result<(), String> {
+        let pending: Vec<Side> = [Side::Left, Side::Right]
+            .into_iter()
+            .filter(|&s| self.chunks[idx].state(s) == State::Pending)
+            .collect();
+        if pending.is_empty() {
+            return Err("Nothing left to ignore here".into());
+        }
+        self.begin(Pos::default());
+        for side in pending {
+            self.chunks[idx].set_state(side, State::Ignored);
+        }
+        Ok(())
+    }
+
     /// Puts the base version back and reopens the chunk.
     pub fn reset(&mut self, idx: usize) {
         let lines = self.base[self.chunks[idx].base.clone()].to_vec();

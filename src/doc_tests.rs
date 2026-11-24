@@ -279,3 +279,22 @@ fn typing_on_one_line_undoes_as_a_single_step() {
     d.undo();
     assert_eq!(text(&d), "a b c d E");
 }
+
+#[test]
+fn ignoring_all_pending_sides_dismisses_a_non_conflicting_change() {
+    let mut d = sample(false);
+    d.ignore_pending(1).unwrap();
+    assert_eq!(text(&d), "a b c d e");
+    assert_eq!(d.unresolved(), (1, 0));
+}
+
+#[test]
+fn ignoring_all_pending_sides_leaves_an_accepted_side_alone() {
+    let mut d = sample(true);
+    d.accept(0, Side::Left).unwrap();
+    d.ignore_pending(0).unwrap();
+    assert_eq!(text(&d), "a L c d E");
+    assert_eq!(d.chunks[0].ls, State::Accepted);
+    assert_eq!(d.chunks[0].rs, State::Ignored);
+    assert!(d.ignore_pending(0).is_err());
+}

@@ -913,6 +913,7 @@ impl App {
             AcceptRight => self.resolve(Side::Right, true),
             IgnoreLeft => self.resolve(Side::Left, false),
             IgnoreRight => self.resolve(Side::Right, false),
+            IgnoreBoth => self.ignore_both(),
             Leader => self.mode = Mode::Leader,
             WriteQuit => self.write_quit(false),
             QuitNoSave => self.quit = Some(self.exit_code()),
@@ -1056,6 +1057,17 @@ impl App {
                     side.name()
                 ));
             }
+        }
+    }
+
+    fn ignore_both(&mut self) {
+        let Some(i) = self.active_chunk() else {
+            self.err("No conflict under the cursor (n jumps to the next one)");
+            return;
+        };
+        match self.doc.ignore_pending(i) {
+            Err(e) => self.err(e),
+            Ok(()) => self.msg("Ignored; the result is kept as it is"),
         }
     }
 

@@ -132,6 +132,8 @@ pub enum Act {
     AcceptRight,
     IgnoreLeft,
     IgnoreRight,
+    /// `XX`: ignore every side that is still pending
+    IgnoreBoth,
     Leader,
     WriteQuit,
     QuitNoSave,
@@ -330,6 +332,7 @@ fn parse_inner(rd: &mut Reader, visual: bool) -> Option<Parse> {
         Key::Char('X') => match rd.next()? {
             Key::Char('L') => IgnoreLeft,
             Key::Char('R') => IgnoreRight,
+            Key::Char('X') => IgnoreBoth,
             _ => return Some(Parse::Invalid),
         },
         Key::Ctrl('w') => match rd.next()? {

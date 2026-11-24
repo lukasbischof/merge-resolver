@@ -719,3 +719,48 @@ fn visual_commands_on_an_empty_buffer_do_nothing() {
     assert_eq!(typed(&["a"], "ddV>"), [] as [&str; 0]);
     assert_eq!(typed(&["a"], "ddvp"), ["a"]);
 }
+
+#[test]
+fn xx_ignores_both_sides_and_keeps_the_result() {
+    let mut a = sample();
+    feed(&mut a, "XX");
+    assert_eq!(out(&a), "a b c d E");
+    assert_eq!(a.doc.unresolved(), (0, 0));
+    assert!(!is_error(&a));
+}
+
+#[test]
+fn xx_is_undone_as_a_single_step() {
+    let mut a = two_conflicts();
+    feed(&mut a, "LnXXu");
+    assert_eq!(a.doc.unresolved(), (1, 0));
+    assert_eq!(a.doc.chunks[1].ls, crate::doc::State::Pending);
+    assert_eq!(a.doc.chunks[1].rs, crate::doc::State::Pending);
+    assert_eq!(out(&a), "a L c d e");
+}
+
+#[test]
+fn xx_ignores_the_side_that_is_still_pending() {
+    let mut a = sample();
+    feed(&mut a, "XLXX");
+    assert_eq!(a.doc.unresolved(), (0, 0));
+    assert!(!is_error(&a));
+}
+
+#[test]
+fn xx_works_from_a_side_pane() {
+    let mut a = sample();
+    feed(&mut a, "<c-h>XX");
+    assert_eq!(a.doc.unresolved(), (0, 0));
+}
+
+#[test]
+fn xx_with_nothing_left_to_ignore_explains_itself() {
+    let mut a = sample();
+    feed(&mut a, "XXXX");
+    assert!(is_error(&a));
+    let mut a = sample();
+    feed(&mut a, "ggXX");
+    assert!(is_error(&a));
+    assert_eq!(a.doc.unresolved(), (1, 0));
+}

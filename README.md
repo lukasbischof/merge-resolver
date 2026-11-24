@@ -48,7 +48,8 @@ The conflict under the cursor is highlighted in all three panes and is the targe
 | `n` / `N` | Next / previous unresolved conflict |
 | `]c` / `[c` | Next / previous change, resolved or not |
 | `L` / `R` | Accept left / right; `LR` or `RL` takes both in that order |
-| `XL` / `XR` | Ignore left / right; `XL XR` keeps the result as it is |
+| `XL` / `XR` | Ignore left / right |
+| `XX` | Ignore both and keep the result as it is |
 | `u` / `^r` | Undo / redo |
 | `^h` / `^l` | Pane to the left / right (also `^w h`, `^w l`, `^w w`) |
 | `<space>` | Menu with the remaining commands; `<space>?` lists all keys |
@@ -71,7 +72,7 @@ The exit code is 0 only if the result was written at least once, so git treats a
 
 - Non-conflicting changes are applied when the tool starts. Pass `--no-auto-apply` to start from the base and apply them yourself.
 - Changes to adjacent lines count as one conflict, as they do in git.
-- A conflict you fix by hand is marked resolved with `XL XR`.
+- A conflict you fix by hand is marked resolved with `XX`.
 - Line endings and a missing final newline are preserved.
 - Colours are tuned for dark terminals, with a 256-colour fallback when `COLORTERM` does not announce truecolor.
 
