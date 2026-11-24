@@ -260,3 +260,58 @@ fn a_tiny_terminal_does_not_crash() {
         t.draw(|f| draw(f, &mut a)).unwrap();
     }
 }
+
+/// Background of a pane's last column, which is never emphasised text.
+fn tint(buf: &Buffer, p: u16, y: u16) -> Color {
+    buf[(p * 21 + 19, y)].bg
+}
+
+/// Like `merge`, but nothing is applied on load, so every change is pending.
+fn unapplied(base: &[&str], left: &[&str], right: &[&str]) -> App {
+    App::new(
+        Doc::new(lines(base), lines(left), lines(right), false),
+        "result.txt".into(),
+    )
+}
+
+#[test]
+fn local_and_incoming_changes_have_different_colors() {
+    let (buf, _) = render(&mut sample());
+    assert_ne!(tint(&buf, 0, 2), Color::Reset);
+    assert_ne!(tint(&buf, 2, 2), Color::Reset);
+    assert_ne!(tint(&buf, 0, 2), tint(&buf, 2, 2));
+}
+
+#[test]
+fn a_conflict_lands_in_the_result_in_a_color_of_its_own() {
+    let (buf, _) = render(&mut sample());
+    assert_ne!(tint(&buf, 1, 2), Color::Reset);
+    assert_ne!(tint(&buf, 1, 2), tint(&buf, 0, 2));
+    assert_ne!(tint(&buf, 1, 2), tint(&buf, 2, 2));
+}
+
+#[test]
+fn a_one_sided_change_lands_in_the_result_in_the_color_of_its_side() {
+    let mut a = unapplied(
+        &["a", "b", "c", "d", "e"],
+        &["a", "L", "c", "d", "e"],
+        &["a", "b", "c", "R", "e"],
+    );
+    keys(&mut a, "G");
+    let (buf, _) = render(&mut a);
+    assert_ne!(tint(&buf, 0, 2), tint(&buf, 2, 4));
+    assert_eq!(tint(&buf, 1, 2), tint(&buf, 0, 2));
+    assert_eq!(tint(&buf, 1, 4), tint(&buf, 2, 4));
+}
+
+#[test]
+fn ignoring_one_side_leaves_the_landing_zone_in_the_other_sides_color() {
+    let mut a = sample();
+    let (before, _) = render(&mut a);
+    keys(&mut a, "XL");
+    let (buf, _) = render(&mut a);
+    assert_eq!(tint(&buf, 2, 2), tint(&before, 2, 2));
+    assert_eq!(tint(&buf, 1, 2), tint(&buf, 2, 2));
+    assert_eq!(buf[(21, 2)].fg, buf[(42, 2)].fg);
+    assert_ne!(tint(&buf, 0, 2), tint(&before, 0, 2));
+}

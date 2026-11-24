@@ -43,6 +43,8 @@ Then run `git mergetool` during a conflicted merge, rebase or cherry-pick.
 
 The conflict under the cursor is highlighted in all three panes and is the target of the conflict keys, whichever pane you are in.
 
+Local changes are purple and incoming changes blue. The result pane tints the lines a change would replace: red while both sides can still land there, otherwise in the colour of the one side that can.
+
 | Key | Action |
 |---|---|
 | `n` / `N` | Next / previous unresolved conflict |

@@ -43,25 +43,23 @@ struct Palette {
     sign: C,
 }
 
-const CONFLICT: Palette = Palette {
-    bg: [C(64, 28, 32, 52), C(98, 36, 42, 88)],
-    emph: [C(104, 42, 48, 88), C(150, 58, 66, 124)],
-    sign: C(240, 100, 100, 203),
+/// A change only the local side can still contribute.
+const LOCAL: Palette = Palette {
+    bg: [C(54, 32, 76, 53), C(78, 46, 110, 54)],
+    emph: [C(92, 56, 128, 90), C(124, 76, 172, 127)],
+    sign: C(190, 140, 250, 141),
 };
-const MODIFIED: Palette = Palette {
+/// A change only the incoming side can still contribute.
+const INCOMING: Palette = Palette {
     bg: [C(28, 44, 72, 17), C(40, 62, 104, 18)],
     emph: [C(46, 72, 120, 24), C(64, 100, 165, 25)],
     sign: C(100, 160, 255, 75),
 };
-const INSERTED: Palette = Palette {
-    bg: [C(28, 56, 34, 22), C(38, 82, 48, 28)],
-    emph: [C(44, 94, 56, 28), C(60, 125, 74, 34)],
-    sign: C(110, 200, 120, 114),
-};
-const DELETED: Palette = Palette {
-    bg: [C(50, 50, 56, 237), C(74, 74, 82, 240)],
-    emph: [C(50, 50, 56, 237), C(74, 74, 82, 240)],
-    sign: C(150, 150, 160, 247),
+/// The place in the result where both sides want to land.
+const CONFLICT: Palette = Palette {
+    bg: [C(64, 28, 32, 52), C(98, 36, 42, 88)],
+    emph: [C(104, 42, 48, 88), C(150, 58, 66, 124)],
+    sign: C(240, 100, 100, 203),
 };
 /// A handled change, shown only while the cursor is on it.
 const HANDLED: Palette = Palette {
@@ -86,6 +84,7 @@ const HELP: &[&str] = &[
     "  XL  XR      ignore left / right",
     "  XX          ignore both and keep the result as it is",
     "  u  ^r       undo / redo",
+    "  purple: local   blue: incoming   red: both would land here",
     "",
     "Panes",
     "  ^h  ^l      pane to the left / right (also ^w h, ^w l, ^w w)",
@@ -106,22 +105,22 @@ const HELP: &[&str] = &[
 ];
 
 /// Picks the colors for a chunk in one pane, or none if it is not drawn.
+/// Each side pane tints the change it still offers in its own color. The
+/// result tints the lines that change would replace: in the color of the
+/// side that can still land there, or as a conflict while both can.
 fn palette(c: &Chunk, pane: usize, active: bool) -> Option<&'static Palette> {
-    let untouched = matches!((c.kind, pane), (Kind::Left, RIGHT) | (Kind::Right, LEFT));
-    if c.resolved() || untouched {
-        return active.then_some(&HANDLED);
-    }
-    let side = if c.kind == Kind::Right {
-        &c.right
-    } else {
-        &c.left
+    let pending = |side| c.state(side) == State::Pending;
+    let pal = match pane {
+        _ if c.resolved() => None,
+        LEFT => pending(Side::Left).then_some(&LOCAL),
+        RIGHT => pending(Side::Right).then_some(&INCOMING),
+        _ => Some(match (pending(Side::Left), pending(Side::Right)) {
+            (true, true) if c.kind == Kind::Conflict => &CONFLICT,
+            (false, true) => &INCOMING,
+            _ => &LOCAL,
+        }),
     };
-    Some(match c.kind {
-        Kind::Conflict => &CONFLICT,
-        _ if c.base.is_empty() => &INSERTED,
-        _ if side.is_empty() => &DELETED,
-        _ => &MODIFIED,
-    })
+    pal.or(active.then_some(&HANDLED))
 }
 
 /// The gutter mark on a chunk's first row.
