@@ -213,13 +213,28 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     // Header and pane separators.
     for p in 0..3 {
-        let style = if p == app.pane {
+        let focused = p == app.pane;
+        let mut style = if focused {
             Style::new()
                 .fg(BRIGHT.into())
                 .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else {
             Style::new().fg(DIM.into())
         };
+        // A side's heading has the background of its changes, as a legend.
+        let pal = match p {
+            LEFT => Some(&LOCAL),
+            RIGHT => Some(&INCOMING),
+            _ => None,
+        };
+        if let Some(pal) = pal {
+            let bg: Color = pal.bg[focused as usize].into();
+            buf.set_style(Rect::new(xs[p], 0, widths[p], 1), Style::new().bg(bg));
+            style = style.bg(bg);
+            if !focused {
+                style = style.fg(BAR_FG.into());
+            }
+        }
         buf.set_stringn(
             xs[p] + 1,
             0,

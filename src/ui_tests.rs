@@ -315,3 +315,29 @@ fn ignoring_one_side_leaves_the_landing_zone_in_the_other_sides_color() {
     assert_eq!(buf[(21, 2)].fg, buf[(42, 2)].fg);
     assert_ne!(tint(&buf, 0, 2), tint(&before, 0, 2));
 }
+
+/// Two conflicts: the one on row 2 is under the cursor, the one on row 4 is not.
+fn two_conflicts() -> App {
+    merge(
+        &["a", "b", "c", "d", "e"],
+        &["a", "L", "c", "M", "e"],
+        &["a", "R", "c", "S", "e"],
+    )
+}
+
+#[test]
+fn side_headings_have_the_background_of_their_changes() {
+    let (buf, _) = render(&mut two_conflicts());
+    assert_eq!(tint(&buf, 0, 0), tint(&buf, 0, 4));
+    assert_eq!(tint(&buf, 2, 0), tint(&buf, 2, 4));
+    assert_eq!(tint(&buf, 1, 0), Color::Reset);
+}
+
+#[test]
+fn the_focused_side_heading_has_the_background_of_the_highlighted_change() {
+    let mut a = two_conflicts();
+    a.handle_key(Key::Ctrl('h'));
+    let (buf, _) = render(&mut a);
+    assert_eq!(tint(&buf, 0, 0), tint(&buf, 0, 2));
+    assert_eq!(tint(&buf, 2, 0), tint(&buf, 2, 4));
+}
