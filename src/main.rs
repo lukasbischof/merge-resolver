@@ -7,12 +7,14 @@ mod keys;
 mod layout;
 mod merge;
 mod motion;
+mod syntax;
 mod text;
 mod ui;
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
+use std::time::Duration;
 
 use ratatui::crossterm::cursor::SetCursorStyle;
 use ratatui::crossterm::event::{self, Event};
@@ -108,6 +110,10 @@ fn run(app: &mut App) -> io::Result<i32> {
         }
         if let Some(code) = app.quit {
             break Ok(code);
+        }
+        // Coloring the rest of the code goes on until a key is pressed.
+        if app.highlighting && !event::poll(Duration::ZERO).unwrap_or(true) {
+            continue;
         }
         match event::read() {
             Ok(Event::Key(k)) => {

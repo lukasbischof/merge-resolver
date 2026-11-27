@@ -11,7 +11,7 @@ The left pane shows your local version, the right pane the incoming one, and the
 
 ## Build
 
-Requires Rust 1.88 or newer (`rustup update stable`).
+Requires Rust 1.88 or newer (`rustup update stable`) and a C compiler, which builds the regex engine of the syntax highlighter.
 
 ```sh
 cargo build --release
@@ -57,6 +57,14 @@ Local changes are purple and incoming changes blue. The result pane tints the li
 | `<space>` | Menu with the remaining commands; `<space>?` lists all keys |
 
 Everything else is vim. Motions, counts, visual mode and yanking work in every pane; editing works in the result pane only. Search is literal with smartcase, and repeats with `gn` / `gN` because `n` / `N` jump between conflicts.
+
+## Syntax highlighting
+
+Code is coloured in all three panes. The language follows from the name of the merged file, or from its `#!` line if the name says nothing.
+
+Ruby, JavaScript, TypeScript, Bash, SQL, Swift, Rust, C, C++, Objective-C, CSS, HTML, ERB, JSON and YAML are tested; the grammars of [bat](https://github.com/sharkdp/bat) for other languages are built in as well. A YAML file with `<%` tags in it is read as YAML with embedded Ruby, so a Rails `database.yml` works whether or not it ends in `.erb`. A `.h` file is Objective-C if it contains `@interface`, `@protocol`, `@implementation` or `#import`, and C++ otherwise.
+
+To add a language, put its `.sublime-syntax` file into `syntaxes/` and rebuild.
 
 ## Saving and quitting
 

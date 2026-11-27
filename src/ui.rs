@@ -2,6 +2,7 @@
 
 use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
@@ -13,6 +14,7 @@ use ratatui::widgets::{Block, Clear, Paragraph};
 use crate::app::{App, LEADER_MENU, Mode};
 use crate::doc::{Chunk, Kind, LEFT, RIGHT, Side, State};
 use crate::layout::RowRef;
+use crate::syntax::Token;
 use crate::text::{char_len, char_width, display_col};
 
 static TRUECOLOR: AtomicBool = AtomicBool::new(true);
@@ -104,6 +106,39 @@ const HELP: &[&str] = &[
     "<space> opens the menu with the remaining commands",
 ];
 
+/// The text color of a piece of code. The colors are light enough to be
+/// read on the background of any change.
+fn syntax_color(token: Token) -> Option<C> {
+    Some(match token {
+        Token::Plain => return None,
+        Token::Comment => C(140, 146, 162, 246),
+        Token::Keyword => C(232, 148, 88, 173),
+        Token::Str => C(152, 200, 128, 114),
+        Token::Constant => C(110, 204, 214, 80),
+        Token::Entity => C(255, 204, 116, 222),
+        Token::Type => C(184, 204, 236, 153),
+        Token::Variable => C(236, 150, 190, 211),
+        Token::Attribute => C(196, 196, 120, 186),
+    })
+}
+
+/// How long one frame may go on coloring code that is not on screen.
+const SPARE_TIME: Duration = Duration::from_millis(10);
+
+/// Colors the code: the first `seen` lines of each pane, which are about
+/// to be drawn, and then as much of the rest as there is time for.
+fn highlight(app: &mut App, seen: [usize; 3]) {
+    let now = Instant::now();
+    for (p, seen) in seen.into_iter().enumerate() {
+        app.syntax[p].update(app.doc.pane_lines(p), seen, now);
+    }
+    let mut done = true;
+    for (p, seen) in seen.into_iter().enumerate() {
+        done &= app.syntax[p].update(app.doc.pane_lines(p), seen, now + SPARE_TIME);
+    }
+    app.highlighting = !done;
+}
+
 /// Picks the colors for a chunk in one pane, or none if it is not drawn.
 /// Each side pane tints the change it still offers in its own color. The
 /// result tints the lines that change would replace: in the color of the
@@ -140,7 +175,8 @@ fn sign(c: &Chunk, pane: usize) -> char {
 }
 
 struct TextStyle<'a> {
-    base: Style,
+    /// What the line is made of, as runs of (end byte, token).
+    tokens: &'a [(usize, Token)],
     emph: Option<(&'a [Range<usize>], Color)>,
     /// Selected char columns.
     selected: Option<Range<usize>>,
@@ -149,7 +185,12 @@ struct TextStyle<'a> {
 /// Draws one line of text into `area`, scrolled left by `hscroll` cells.
 fn draw_text(buf: &mut Buffer, area: Rect, line: &str, hscroll: usize, style: &TextStyle) {
     let mut col = 0;
+    let mut byte = 0;
+    let mut runs = style.tokens.iter().peekable();
     for (i, c) in line.chars().enumerate() {
+        while runs.next_if(|run| run.0 <= byte).is_some() {}
+        let token = runs.peek().map_or(Token::Plain, |run| run.1);
+        byte += c.len_utf8();
         let width = char_width(c, col);
         let start = col;
         col += width;
@@ -160,11 +201,17 @@ fn draw_text(buf: &mut Buffer, area: Rect, line: &str, hscroll: usize, style: &T
         if x + width > area.width as usize {
             break;
         }
-        let mut s = style.base;
-        if let Some((ranges, color)) = style.emph
-            && ranges.iter().any(|r| r.contains(&i))
-        {
+        let mut s = Style::new();
+        let emph = style
+            .emph
+            .filter(|(ranges, _)| ranges.iter().any(|r| r.contains(&i)));
+        if let Some((_, color)) = emph {
             s = s.bg(color);
+        }
+        // The gray of a comment is too faint on a changed word.
+        let faint = token == Token::Comment && emph.is_some();
+        if let Some(color) = syntax_color(token).filter(|_| !faint) {
+            s = s.fg(color.into());
         }
         if style.selected.as_ref().is_some_and(|r| r.contains(&i)) {
             s = s.bg(SELECTION.into());
@@ -207,6 +254,15 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     app.set_view(view_h as usize, (pane_w - gutter) as usize);
 
     let layout = app.layout();
+    let mut seen = [0; 3];
+    for row in app.top..app.top + view_h as usize {
+        for (p, seen) in seen.iter_mut().enumerate() {
+            if let RowRef::Line(n) = layout.row_ref(p, row) {
+                *seen = n + 1;
+            }
+        }
+    }
+    highlight(app, seen);
     let active = app.active_chunk();
     let selection = app.selection();
     let buf = f.buffer_mut();
@@ -326,7 +382,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                         line,
                         app.hscroll,
                         &TextStyle {
-                            base: Style::new(),
+                            tokens: app.syntax[p].spans(n),
                             emph,
                             selected,
                         },

@@ -7,6 +7,7 @@ use ratatui::style::Color;
 use super::*;
 use crate::app::Key;
 use crate::doc::Doc;
+use crate::syntax::Token;
 
 fn lines(s: &[&str]) -> Vec<String> {
     s.iter().map(|l| l.to_string()).collect()
@@ -340,4 +341,115 @@ fn the_focused_side_heading_has_the_background_of_the_highlighted_change() {
     let (buf, _) = render(&mut a);
     assert_eq!(tint(&buf, 0, 0), tint(&buf, 0, 2));
     assert_eq!(tint(&buf, 2, 0), tint(&buf, 2, 4));
+}
+
+/// Foreground of the text cell at column `col` of a pane.
+fn fg(buf: &Buffer, p: u16, y: u16, col: u16) -> Color {
+    buf[(p * 21 + 6 + col, y)].fg
+}
+
+fn color_of(token: Token) -> Color {
+    syntax_color(token).expect("a colored token").into()
+}
+
+/// The same file on all three sides, named so that it has a language.
+fn code(file: &str, text: &[&str]) -> App {
+    let doc = Doc::new(lines(text), lines(text), lines(text), false);
+    App::new(doc, file.into())
+}
+
+#[test]
+fn code_is_colored_in_every_pane() {
+    let (buf, _) = render(&mut code("a.rb", &["# note", "x = 1"]));
+    for p in 0..3 {
+        assert_eq!(fg(&buf, p, 1, 0), color_of(Token::Comment), "pane {p}");
+        assert_eq!(fg(&buf, p, 2, 0), Color::Reset, "pane {p}");
+        assert_eq!(fg(&buf, p, 2, 4), color_of(Token::Constant), "pane {p}");
+    }
+}
+
+#[test]
+fn a_file_without_language_is_not_colored() {
+    let (buf, _) = render(&mut code("a.txt", &["# note"]));
+    assert_eq!(fg(&buf, 1, 1, 0), Color::Reset);
+}
+
+#[test]
+fn colors_follow_the_text_past_wide_chars_and_tabs() {
+    let (buf, _) = render(&mut code("a.rb", &["\tä = '日' # c"]));
+    assert_eq!(fg(&buf, 1, 1, 8), color_of(Token::Str));
+    assert_eq!(fg(&buf, 1, 1, 9), color_of(Token::Str));
+    assert_eq!(fg(&buf, 1, 1, 13), color_of(Token::Comment));
+}
+
+#[test]
+fn a_changed_line_keeps_the_colors_of_its_code() {
+    let mut app = App::new(
+        Doc::new(
+            lines(&["x = 1"]),
+            lines(&["x = 2"]),
+            lines(&["x = 3"]),
+            false,
+        ),
+        "a.rb".into(),
+    );
+    let (buf, _) = render(&mut app);
+    for p in 0..3 {
+        assert_eq!(fg(&buf, p, 1, 4), color_of(Token::Constant), "pane {p}");
+        assert_ne!(tint(&buf, p, 1), Color::Reset, "pane {p}");
+    }
+}
+
+#[test]
+fn the_result_is_recolored_as_it_is_edited() {
+    let mut app = code("a.rb", &["x = 1", "y = 2"]);
+    render(&mut app);
+    keys(&mut app, "I# \x1b");
+    let (buf, _) = render(&mut app);
+    assert_eq!(fg(&buf, 1, 1, 0), color_of(Token::Comment));
+    assert_eq!(fg(&buf, 1, 1, 6), color_of(Token::Comment));
+    assert_eq!(fg(&buf, 0, 1, 4), color_of(Token::Constant));
+    assert_eq!(fg(&buf, 1, 2, 4), color_of(Token::Constant));
+}
+
+#[test]
+fn a_changed_word_in_a_comment_is_not_drawn_in_the_faint_comment_color() {
+    let mut app = App::new(
+        Doc::new(
+            lines(&["# foo"]),
+            lines(&["# bar"]),
+            lines(&["# foo"]),
+            false,
+        ),
+        "a.rb".into(),
+    );
+    let (buf, _) = render(&mut app);
+    assert_eq!(fg(&buf, 0, 1, 0), color_of(Token::Comment));
+    assert_eq!(fg(&buf, 0, 1, 2), Color::Reset);
+}
+
+#[test]
+fn drawing_again_colors_the_lines_below_the_screen() {
+    let text: Vec<String> = (0..3000).map(|i| format!("x = {i} # note")).collect();
+    let mut app = App::new(
+        Doc::new(text.clone(), text.clone(), text, false),
+        "a.rb".into(),
+    );
+    let mut draws = 0;
+    render(&mut app);
+    while app.highlighting {
+        render(&mut app);
+        draws += 1;
+        assert!(draws < 10_000, "coloring never finishes");
+    }
+    for p in 0..3 {
+        assert!(!app.syntax[p].spans(2999).is_empty(), "pane {p}");
+    }
+}
+
+#[test]
+fn a_file_without_language_leaves_nothing_to_color() {
+    let mut app = code("a.txt", &["x"]);
+    render(&mut app);
+    assert!(!app.highlighting);
 }

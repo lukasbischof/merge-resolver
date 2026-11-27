@@ -1,0 +1,28 @@
+%YAML 1.2
+---
+# YAML with embedded Ruby, as in a Rails config/database.yml.
+# Modelled on "HTML (Rails)" from Sublime Text's Rails package.
+name: YAML (Rails)
+file_extensions:
+  - yml.erb
+  - yaml.erb
+scope: source.yaml.rails
+contexts:
+  main:
+    - match: ''
+      push: 'scope:source.yaml'
+      with_prototype:
+        - match: '<%+#'
+          scope: punctuation.definition.comment.erb
+          push:
+            - meta_scope: comment.block.erb
+            - match: '%>'
+              pop: true
+        - match: '<%+(?!>)[-=]?'
+          scope: punctuation.section.embedded.ruby
+          push:
+            - meta_scope: source.ruby.rails.embedded.yaml
+            - match: '-?%>'
+              scope: punctuation.section.embedded.ruby
+              pop: true
+            - include: 'scope:source.ruby.rails'

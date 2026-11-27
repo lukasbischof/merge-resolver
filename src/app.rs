@@ -8,6 +8,7 @@ use crate::doc::{Doc, OUT, Pos, RIGHT, Side};
 pub use crate::keys::Key;
 use crate::keys::{Act, Cmd, Motion, Op, Parse, Target, parse};
 use crate::layout::Layout;
+use crate::syntax::{self, Highlight};
 use crate::text::{
     Class, byte_at, char_len, class, display_col, emphasis, first_non_blank, indent_of,
 };
@@ -90,6 +91,10 @@ pub struct App {
     pub titles: [String; 3],
     /// Per line of the left and right file: char ranges that differ from the base.
     pub emph: [Vec<Vec<Range<usize>>>; 2],
+    /// The colors of the code in each pane.
+    pub syntax: [Highlight; 3],
+    /// Whether lines are left to color once there is time.
+    pub highlighting: bool,
     reg: Register,
     indent: String,
     last_search: Option<(String, bool)>,
@@ -146,6 +151,7 @@ impl App {
                 emph[i].splice(range.clone(), marks);
             }
         }
+        let language = syntax::detect(&path, &[&doc.left, &doc.right, &doc.base]);
         let mut app = App {
             indent: detect_indent(&doc.left),
             doc,
@@ -167,6 +173,8 @@ impl App {
             eol: "\n",
             final_newline: true,
             word_hl: true,
+            syntax: std::array::from_fn(|_| Highlight::new(language)),
+            highlighting: false,
             titles: ["Local".into(), "Result".into(), "Incoming".into()],
             emph,
             reg: Register::default(),
